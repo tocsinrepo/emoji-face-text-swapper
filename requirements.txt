@@ -1,7 +1,6 @@
 streamlit
 rembg
 Pillow
-opencv-python-headless
 numpy
 insightface
 onnxruntime
