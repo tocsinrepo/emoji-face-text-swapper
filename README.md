@@ -1,12 +1,23 @@
 # Face & Text Swapper
 
-A simple Streamlit app to:
-- Remove background
-- Swap face
-- Replace bottom text
+Simple Streamlit app for:
+- Removing background
+- Placing a new face on the image
+- Changing the bottom text
 
-## Setup
+## How to Run
 
-1. Download `inswapper_128.onnx` from InsightFace and place it in `~/.insightface/models/`
-2. `pip install -r requirements.txt`
-3. `streamlit run app.py`
+### Local
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+### Streamlit Cloud
+1. Create a new app on Streamlit Cloud
+2. Connect this GitHub repo
+3. Deploy
+
+**Note:** This version uses a simple face overlay (no deep learning face swap) for maximum compatibility on Streamlit Cloud.
+
+Made with ❤️

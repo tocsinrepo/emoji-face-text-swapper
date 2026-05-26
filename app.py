@@ -1,104 +1,85 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-import numpy as np
 from rembg import remove
-import insightface
-from insightface.app import FaceAnalysis
+import numpy as np
 from io import BytesIO
-import os
 
 st.set_page_config(page_title="Face & Text Swapper", layout="wide")
 st.title("🖼️ Face & Text Swapper")
-st.markdown("Upload image → Remove background → Swap face → Change text")
+st.markdown("Upload image → Remove background → Place new face → Change bottom text")
 
-# Load models
-@st.cache_resource
-def load_models():
-    try:
-        face_analyser = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
-        face_analyser.prepare(ctx_id=0, det_size=(640, 640))
-        swapper = insightface.model_zoo.get_model('inswapper_128.onnx', download=False, providers=['CPUExecutionProvider'])
-        return face_analyser, swapper
-    except Exception as e:
-        st.error(f"Model loading error: {str(e)}")
-        return None, None
-
-face_analyser, swapper = load_models()
-
+# File uploads
 col1, col2 = st.columns(2)
 
 with col1:
-    source_file = st.file_uploader("Upload Original Image", type=["png", "jpg", "jpeg"])
-    face_file = st.file_uploader("Upload New Face", type=["png", "jpg", "jpeg"])
+    source_img = st.file_uploader("Upload Original Image (PNG/JPG)", type=["png", "jpg", "jpeg"])
+    face_img = st.file_uploader("Upload New Face Image", type=["png", "jpg", "jpeg"])
 
 with col2:
-    new_text = st.text_input("New Bottom Text", placeholder="Enter new text...")
-    text_size = st.slider("Text Size", 30, 150, 70)
+    new_text = st.text_input("New Text (Bottom)", placeholder="Enter new text here...")
+    text_size = st.slider("Text Size", 20, 120, 60)
     text_color = st.color_picker("Text Color", "#FFFFFF")
+    face_scale = st.slider("Face Size Scale (%)", 30, 150, 80)
 
-if source_file and face_file and new_text and st.button("Process Image"):
-    if face_analyser is None or swapper is None:
-        st.error("Face swap models failed to load. Try on local machine with GPU.")
-        st.stop()
-
-    with st.spinner("Processing image..."):
-        # Load images
-        source = Image.open(source_file).convert("RGB")
-        face = Image.open(face_file).convert("RGB")
-
-        # Remove background
-        source_no_bg = remove(source)
-
-        # Convert to numpy
-        source_np = np.array(source)
-        face_np = np.array(face)
-
-        # Face swap
+if source_img and face_img and st.button("🚀 Process Image"):
+    with st.spinner("Processing... This may take a few seconds..."):
         try:
-            faces = face_analyser.get(source_np)
-            target_faces = face_analyser.get(face_np)
+            # Load images
+            source = Image.open(source_img).convert("RGB")
+            face = Image.open(face_img).convert("RGBA")
             
-            if len(faces) == 0 or len(target_faces) == 0:
-                st.error("Could not detect faces in one of the images.")
-                st.stop()
-
-            result = source_np.copy()
-            for face_src in faces:
-                result = swapper.get(result, face_src, target_faces[0], paste_back=True)
-
-            result_img = Image.fromarray(result)
+            # Remove background from source
+            source_no_bg = remove(source)
+            
+            # Convert source to RGBA for transparency
+            source_no_bg = source_no_bg.convert("RGBA")
+            
+            # Resize face
+            face_width = int(source.width * (face_scale / 100))
+            face = face.resize((face_width, int(face_width * face.height / face.width)), Image.Resampling.LANCZOS)
+            
+            # Simple face placement - center it roughly where a face would be
+            x = (source_no_bg.width - face.width) // 2
+            y = (source_no_bg.height - face.height) // 3  # Place higher up
+            
+            # Paste new face onto source
+            result_img = source_no_bg.copy()
+            result_img.paste(face, (x, y), face)
+            
+            # Add new text at bottom
+            draw = ImageDraw.Draw(result_img)
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", text_size)
+            except:
+                font = ImageFont.load_default()
+            
+            # Center text
+            bbox = draw.textbbox((0, 0), new_text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_x = (result_img.width - text_width) // 2
+            text_y = result_img.height - text_size - 50
+            
+            # Draw outline + text
+            for adj in range(-2, 3):
+                for adj2 in range(-2, 3):
+                    draw.text((text_x + adj, text_y + adj2), new_text, font=font, fill="black")
+            
+            draw.text((text_x, text_y), new_text, font=font, fill=text_color)
+            
+            # Display result
+            st.image(result_img, caption="Final Result", use_column_width=True)
+            
+            # Download button
+            buf = BytesIO()
+            result_img.save(buf, format="PNG")
+            st.download_button(
+                label="⬇️ Download Final Image",
+                data=buf.getvalue(),
+                file_name="swapped_image.png",
+                mime="image/png"
+            )
+            
         except Exception as e:
-            st.warning("Face swap failed. Using original image with background removed.")
-            result_img = source_no_bg
-
-        # Add text
-        draw = ImageDraw.Draw(result_img)
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", text_size)
-        except:
-            font = ImageFont.load_default()
-
-        bbox = draw.textbbox((0, 0), new_text, font=font)
-        text_width = bbox[2] - bbox[0]
-        x = (result_img.width - text_width) // 2
-        y = result_img.height - text_size - 50
-
-        # Shadow/outline
-        for adj in range(-3, 4):
-            for adj2 in range(-3, 4):
-                draw.text((x + adj, y + adj2), new_text, font=font, fill="black")
-
-        draw.text((x, y), new_text, font=font, fill=text_color)
-
-        # Show result
-        st.image(result_img, caption="✅ Final Result", use_column_width=True)
-
-        # Download
-        buf = BytesIO()
-        result_img.save(buf, format="PNG")
-        st.download_button(
-            "⬇️ Download PNG",
-            buf.getvalue(),
-            "swapped_image.png",
-            "image/png"
-        )
+            st.error(f"Error: {str(e)}")
+else:
+    st.info("Please upload both images and click Process")
